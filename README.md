@@ -1,19 +1,33 @@
 # HelpGrid — Real-Time Community Response Network
 
-HelpGrid is a responsive community-support prototype built with React and Vite. Neighbors can post non-emergency requests, browse a sample volunteer directory, see explainable RelayMatch suggestions, and move a request through its lifecycle.
+HelpGrid is a responsive community-support prototype built with React, Vite, Express, and the CometChat JavaScript UI Kit. It includes a community dashboard, local request lifecycle, explainable sample volunteer suggestions, and optional private CometChat group chat per request.
+
+The community selector filters the sample requests and volunteer directory by neighborhood. This is prototype data only: communities, requests, and volunteers are not synced to a shared service.
 
 ## Run locally
 
 Requirements: Node.js and npm.
 
-```sh
+Install dependencies and create a local environment file:
+
+```powershell
 npm install
+Copy-Item .env.example .env
+```
+
+Fill in the CometChat and development-user values described below. Run the frontend and backend in separate terminals:
+
+```powershell
+npm run server:dev
+```
+
+```powershell
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally `http://localhost:5173`). To verify a production build, run:
+Open the local URL printed by Vite (normally `http://localhost:5173`). The backend listens only on `http://127.0.0.1:3001`. To verify a production build, run:
 
-```sh
+```powershell
 npm run build
 ```
 
@@ -21,24 +35,24 @@ npm run build
 
 This repository does **not** implement HelpGrid account sign-in or a trusted production identity provider. The token endpoint below is a **development-only prototype**, not a production authentication system. It is bound to `127.0.0.1`, accepts at most two fixed server-configured development UIDs protected by HTTP Basic authentication, and refuses to start when `NODE_ENV=production` or its explicit development-auth switch is disabled. Do not expose it to a network or deploy it publicly.
 
-The Basic-auth UID and password are compared with values held in the backend environment. The request body's UID must match that authenticated UID. This prevents unauthenticated requests and UID substitution in local testing, but a shared development password is not a substitute for verifying HelpGrid users' real sessions. Before deployment, replace this development guard with trusted application-session verification and derive the CometChat UID from that verified server-side identity.
+The Basic-auth UID and password are checked against the configured development-user allowlist. The request body's UID must match the authenticated UID. This supports local testing only; it is not a substitute for verifying HelpGrid user sessions. Before deployment, use trusted application-session verification and derive the CometChat UID from that verified server-side identity.
 
 ### Configure and run
 
-1. Copy `.env.example` to `.env`.
-2. Replace every placeholder with local values:
+1. Copy `.env.example` to `.env` if you have not already.
+2. Replace each placeholder with local values:
    - `HELPGRID_DEV_UID` and `HELPGRID_DEV_PASSWORD`: the first existing CometChat test user and a unique random local password of at least 16 characters.
    - Optional `HELPGRID_DEV_UID_2` and `HELPGRID_DEV_PASSWORD_2`: a second, distinct existing CometChat test user and a different unique local password of at least 16 characters. Configure both or neither. The endpoint supports at most these two fixed identities; it never issues tokens for arbitrary UIDs.
    - `COMETCHAT_APP_ID`, `COMETCHAT_REGION` (`us`, `eu`, or `in`), and `COMETCHAT_REST_API_KEY`: values for your CometChat application. The REST API key is privileged and must remain in the backend `.env`; never use a `VITE_` variable for it.
-   - Both CometChat users must already exist in the same CometChat app. The local HelpGrid passwords are only for the development endpoint; they are not CometChat account passwords.
+   - Both CometChat users must already exist in the same CometChat app. Local HelpGrid passwords are only for the development endpoint; they are not CometChat account passwords.
 3. Start the API in one terminal:
 
-   ```sh
+   ```powershell
    npm run server:dev
    ```
 
    The server listens only on `http://127.0.0.1:3001` and logs the number of configured development users, never their UIDs or passwords. It reads `.env` only at startup; restart it after changing either user's configuration.
-4. To run the React prototype, start Vite separately with `npm run dev`. Vite proxies `/api` requests to the loopback backend.
+4. Start Vite separately with `npm run dev`. Vite proxies `/api` requests to the loopback backend.
 
 The endpoint accepts exactly `{"uid":"your_local_dev_uid"}` at `POST /api/cometchat/token`, with the configured UID/password sent using HTTP Basic authentication. A successful response has the shape `{"uid":"verified-user-uid","authToken":"generated-token"}`. Missing/invalid JSON or a malformed UID returns 400; missing credentials or a UID that differs from the authenticated identity returns 401; CometChat/network/configuration failures return a generic 500 without upstream details or secrets.
 
@@ -50,9 +64,9 @@ The backend uses CometChat's documented create-auth-token REST API, `POST https:
 
 The request detail chat uses the official CometChat JavaScript SDK and React UI Kit. The app reads only the public App ID and region from `GET /api/cometchat/config`, asks for a configured local UID/password, obtains an auth token through the backend, and logs in with that token. The CometChat REST API key remains in the backend `.env`; local passwords are only held in form state while connecting and are not stored by HelpGrid.
 
-Each request maps deterministically to a private CometChat group GUID (`helpgrid_` plus its normalized request ID). On first connect, the signed-in user creates the private group and adds the entered existing neighbor as a participant. Later connections require the current user to already be a CometChat group member. Adding a missing participant requires the current user to be a group admin or moderator; the UI verifies group type and membership through the SDK before rendering the official group message header/list/composer. CometChat enforces message access using private-group membership. No sample messages are inserted.
+Each request maps deterministically to a private CometChat group GUID (`helpgrid_` plus its normalized request ID). When a group does not exist, the signed-in user creates it and adds the entered existing neighbor as a participant. For an existing group, the UI checks its privacy and membership before showing chat. Only a group admin or moderator can add a missing participant; other users must ask a group admin to add them. CometChat enforces message access using private-group membership. No sample messages are inserted.
 
-For a two-user local test, configure both fixed development UID/password pairs in `.env`, start the backend, and open the app in two separate browser profiles. In profile A, sign in with user 1, use the target request ID, and enter user 2's CometChat UID as the neighbor; this creates the private room and adds user 2. In profile B, open any request's chat, replace the Request ID field with the same target request ID, sign in with user 2's development credentials, and enter user 1's UID as the neighbor. Both identities must already exist in the same CometChat app. The second profile's request board may differ because requests are browser-local; the explicit Request ID field lets it address the same private group without claiming that request data is shared. A member who is not an admin cannot add new participants; ask a group admin to do that first.
+For a two-user local test, configure both fixed development UID/password pairs in `.env`, restart the backend, and open HelpGrid in two separate browser profiles. In profile A, sign in as user 1, keep the request ID, and enter user 2's UID; the creator adds user 2 to the private room. In profile B, open any request's chat, enter the same request ID, sign in as user 2, and enter user 1's UID. Both users must already exist in the same CometChat app. Requests remain browser-local, so the request ID must be entered in profile B. If an existing group does not include the other user, a group admin/moderator must add them.
 
 This is still a development-only authentication prototype, not production identity or authorization for who may initiate a request chat. The API is loopback-only, refuses production mode, and accepts tokens only for the one or two configured identities. Never add arbitrary-UID token issuance or deploy this Basic-auth flow.
 
@@ -62,27 +76,18 @@ Requests themselves remain browser-local. A request created in one browser is no
 
 Run the frontend matching/persistence tests and backend API tests:
 
-```sh
+```powershell
 npm test
 ```
 
-The tests cover request creation/status persistence across a simulated reload, request merging, matching reasons, per-request group GUIDs, token endpoint authentication for both configured development identities, public config, and sanitized upstream failures. Backend tests mock CometChat's REST API; they do not claim live chat was verified.
+The tests cover request creation/status persistence across a simulated reload, request merging, matching reasons, per-request group GUIDs, token endpoint authentication for both configured development identities, public config, and sanitized upstream failures. Backend tests mock CometChat's REST API; they do not verify real chat delivery.
 
-For a live local check, after configuring `.env` and starting the server, send a request using the same local development UID/password. In PowerShell:
+To run only the backend tests or lint:
 
 ```powershell
-$devUid = "your_local_dev_uid"
-$devPassword = "the_local_password_from_your_ignored_env_file"
-$basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${devUid}:$devPassword"))
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://127.0.0.1:3001/api/cometchat/token" `
-  -Headers @{ Authorization = "Basic $basic" } `
-  -ContentType "application/json" `
-  -Body (@{ uid = $devUid } | ConvertTo-Json)
+npm run test:server
+npm run lint
 ```
-
-The returned auth token is a credential; do not paste it into chat, commit it, or publish it.
 
 ### Manual two-user and persistence checks
 
@@ -96,6 +101,7 @@ The returned auth token is a credential; do not paste it into chat, commit it, o
 ## Prototype features
 
 - Community overview with request counts, search, status filters, and a responsive request list.
+- Community dropdown for Northside, Westside, Maple Heights, and all sample communities; selecting one filters requests and volunteer profiles by area.
 - Request form with required-field validation, urgency, skills, and general-area-only location guidance.
 - Request details with status controls for `OPEN`, `CLAIMED`, `RESPONDING`, and `RESOLVED`.
 - Explainable RelayMatch suggestions based on sample volunteer skills, availability, and neighborhood. These suggestions are illustrative and do not contact or notify real volunteers.
@@ -111,4 +117,4 @@ The returned auth token is a credential; do not paste it into chat, commit it, o
 - The development token backend supports only the one or two configured local users and is not safe to expose publicly.
 - HelpGrid is not an emergency service and does not dispatch responders. For emergencies, contact local emergency services.
 - Share only a general neighborhood; do not post a home address or sensitive personal information.
-- No GitHub remote, deployment, or production user-authentication service is configured by this starter.
+- No public deployment, shared request database, or production user-authentication service is included.
