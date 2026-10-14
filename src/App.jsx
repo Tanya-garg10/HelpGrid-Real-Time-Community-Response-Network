@@ -1,5 +1,11 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
-import { loadRequests, matchVolunteers, persistRequests } from './requests.js'
+import {
+  createRequestRecord,
+  loadRequests,
+  matchVolunteers,
+  persistRequests,
+  updateRequestStatus,
+} from './requests.js'
 import './App.css'
 
 const IncidentChat = lazy(() => import('./IncidentChat.jsx'))
@@ -19,6 +25,13 @@ const volunteers = [
   { name: 'Sam Okafor', initials: 'SO', area: 'North Park', skills: ['Driving', 'Shopping'], available: 'Available tomorrow', color: 'green' },
 ]
 
+const communities = [
+  { name: 'Northside Community', subtitle: 'North Park · Old Town', areas: ['North Park', 'Old Town'] },
+  { name: 'Westside Community', subtitle: 'Westside neighborhood', areas: ['Westside'] },
+  { name: 'Maple Heights Community', subtitle: 'Maple Heights neighborhood', areas: ['Maple Heights'] },
+  { name: 'All communities', subtitle: 'Browse every sample request', areas: null },
+]
+
 const statusOrder = ['OPEN', 'CLAIMED', 'RESPONDING', 'RESOLVED']
 const filters = ['All requests', 'Open', 'In progress', 'Resolved']
 const categories = ['Errands', 'Food & groceries', 'Home help', 'Transportation', 'Companionship', 'Translation', 'Other']
@@ -34,6 +47,7 @@ function App() {
   const [requests, setRequests] = useState(initial.requests)
   const [storageError, setStorageError] = useState(initial.error)
   const [activePage, setActivePage] = useState('Overview')
+  const [activeCommunityName, setActiveCommunityName] = useState('Northside Community')
   const [activeFilter, setActiveFilter] = useState('All requests')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
@@ -42,6 +56,17 @@ function App() {
   const [notice, setNotice] = useState('')
   const [formError, setFormError] = useState('')
   const [form, setForm] = useState({ title: '', category: 'Errands', description: '', area: '', urgency: 'Today', skills: [] })
+  const activeCommunity = communities.find((community) => community.name === activeCommunityName) || communities[0]
+  const communityRequests = useMemo(() => (
+    activeCommunity.areas
+      ? requests.filter((request) => activeCommunity.areas.includes(request.area))
+      : requests
+  ), [activeCommunity, requests])
+  const communityVolunteers = useMemo(() => (
+    activeCommunity.areas
+      ? volunteers.filter((volunteer) => activeCommunity.areas.includes(volunteer.area))
+      : volunteers
+  ), [activeCommunity])
 
   function saveRequests(nextRequests) {
     const persisted = persistRequests({
@@ -56,7 +81,7 @@ function App() {
   }
 
   const visibleRequests = useMemo(() => {
-    return requests.filter((request) => {
+    return communityRequests.filter((request) => {
       const matchesSearch = `${request.title} ${request.category} ${request.area}`.toLowerCase().includes(query.toLowerCase())
       const matchesFilter = activeFilter === 'All requests'
         || (activeFilter === 'Open' && request.status === 'OPEN')
@@ -64,12 +89,12 @@ function App() {
         || (activeFilter === 'Resolved' && request.status === 'RESOLVED')
       return matchesSearch && matchesFilter
     })
-  }, [requests, activeFilter, query])
+  }, [communityRequests, activeFilter, query])
 
   const matchedVolunteers = selected ? matchVolunteers(selected, volunteers) : []
 
   function updateStatus(id, status) {
-    const nextRequests = requests.map((request) => request.id === id ? { ...request, status } : request)
+    const nextRequests = updateRequestStatus(requests, id, status)
     setRequests(nextRequests)
     const persisted = saveRequests(nextRequests)
     setSelected((current) => current?.id === id ? { ...current, status } : current)
@@ -96,17 +121,10 @@ function App() {
       setFormError('Choose at least one volunteer skill so RelayMatch can find a helpful match.')
       return
     }
-    const newRequest = {
-      ...form,
-      id: `HG-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
-      title: form.title.trim(),
-      description: form.description.trim(),
-      area: form.area.trim(),
-      status: 'OPEN',
-      createdAt: 'Just now',
-      initials: 'You',
-      color: 'teal',
-    }
+    const newRequest = createRequestRecord(
+      form,
+      `HG-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+    )
     const nextRequests = [newRequest, ...requests]
     setRequests(nextRequests)
     const persisted = saveRequests(nextRequests)
@@ -121,8 +139,9 @@ function App() {
     window.setTimeout(() => setNotice(''), 3500)
   }
 
-  const openCount = requests.filter((request) => request.status === 'OPEN').length
-  const activeCount = requests.filter((request) => ['CLAIMED', 'RESPONDING'].includes(request.status)).length
+  const openCount = communityRequests.filter((request) => request.status === 'OPEN').length
+  const activeCount = communityRequests.filter((request) => ['CLAIMED', 'RESPONDING'].includes(request.status)).length
+  const resolvedCount = communityRequests.filter((request) => request.status === 'RESOLVED').length
 
   return (
     <div className="app-shell">
@@ -132,7 +151,11 @@ function App() {
           <span>helpgrid<span className="brand-period">.</span><small>NEIGHBORS, TOGETHER</small></span>
         </a>
         <div className="workspace-label">YOUR COMMUNITY</div>
-        <button className="community-select" type="button"><span className="community-dot" /> Northside Community <span className="chevron">⌄</span></button>
+        <CommunityMenu
+          communities={communities}
+          activeCommunity={activeCommunity}
+          onSelect={setActiveCommunityName}
+        />
         <nav className="side-nav" aria-label="Main navigation">
           <div className="nav-caption">WORKSPACE</div>
           {[
@@ -154,8 +177,14 @@ function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div className="breadcrumb">Northside Community <span>/</span> <strong>{activePage}</strong></div>
+          <div className="breadcrumb">{activeCommunity.name} <span>/</span> <strong>{activePage}</strong></div>
           <div className="top-actions">
+            <CommunityMenu
+              className="mobile-community-menu"
+              communities={communities}
+              activeCommunity={activeCommunity}
+              onSelect={setActiveCommunityName}
+            />
             <span className="live-indicator"><i /> Prototype preview</span>
             <button className="icon-button notification-button" type="button" aria-label="Notifications" onClick={() => setNotice('You’re all caught up on community updates.')}>♧<b /></button>
             <span className="top-avatar">T</span>
@@ -168,25 +197,26 @@ function App() {
 
           {activePage === 'Volunteers' ? (
             <section className="volunteers-page">
-              <div className="page-heading"><div><div className="eyebrow">THE PEOPLE WHO SHOW UP</div><h1>Our volunteers<span className="heading-period">.</span></h1><p className="page-subtitle">Good neighbors, sharing time and skills across Northside.</p></div><span className="sample-tag">SAMPLE DIRECTORY</span></div>
-              <div className="volunteer-grid">{volunteers.map((volunteer) => <article className="volunteer-card" key={volunteer.name}><div className="volunteer-card-top"><span className={`avatar avatar-${volunteer.color}`}>{volunteer.initials}</span><span className="availability-dot" /></div><h3>{volunteer.name}</h3><p className="volunteer-area">⌖ {volunteer.area}</p><div className="skill-list">{volunteer.skills.map((skill) => <span className="skill-chip" key={skill}>{skill}</span>)}</div><div className="volunteer-available">{volunteer.available}</div></article>)}</div>
+              <div className="page-heading"><div><div className="eyebrow">THE PEOPLE WHO SHOW UP</div><h1>Our volunteers<span className="heading-period">.</span></h1><p className="page-subtitle">Good neighbors sharing time and skills across {activeCommunity.name}.</p></div><span className="sample-tag">SAMPLE DIRECTORY</span></div>
+              <div className="volunteer-grid">{communityVolunteers.map((volunteer) => <article className="volunteer-card" key={volunteer.name}><div className="volunteer-card-top"><span className={`avatar avatar-${volunteer.color}`}>{volunteer.initials}</span><span className="availability-dot" /></div><h3>{volunteer.name}</h3><p className="volunteer-area">⌖ {volunteer.area}</p><div className="skill-list">{volunteer.skills.map((skill) => <span className="skill-chip" key={skill}>{skill}</span>)}</div><div className="volunteer-available">{volunteer.available}</div></article>)}</div>
+              {!communityVolunteers.length && <div className="empty-state"><h3>No sample volunteers in this community</h3><p>Choose another community to browse the sample directory.</p></div>}
               <p className="sample-note">Volunteer profiles shown are sample data for this prototype.</p>
             </section>
           ) : (
             <>
               <section className="welcome-banner">
-                <div className="welcome-copy"><div className="eyebrow"><span className="sparkle">✳</span> TUESDAY, OCTOBER 13</div><h1>{activePage === 'Requests' ? 'Community requests' : 'Good afternoon, Tanya'}<span className="heading-period">.</span></h1><p>{activePage === 'Requests' ? 'A little help goes a long way. Here’s what your neighbors need.' : 'A little help goes a long way. Here’s what’s happening in your community.'}</p><button className="primary-button" onClick={() => { setFormError(''); setShowCreate(true) }} type="button"><span>＋</span> Post a request</button></div>
+                <div className="welcome-copy"><div className="eyebrow"><span className="sparkle">✳</span> YOUR COMMUNITY · {activeCommunity.name.toUpperCase()}</div><h1>{activePage === 'Requests' ? 'Community requests' : 'Neighbors, showing up for each other'}<span className="heading-period">.</span></h1><p>{activePage === 'Requests' ? `A little help goes a long way. Here’s what your neighbors need in ${activeCommunity.name}.` : `Small acts of care make a big difference in ${activeCommunity.name}.`}</p><button className="primary-button" onClick={() => { setFormError(''); setShowCreate(true) }} type="button"><span>＋</span> Post a request</button></div>
                 <div className="welcome-art" aria-hidden="true"><div className="art-sun" /><div className="art-hill art-hill-back" /><div className="art-hill art-hill-front" /><div className="art-house"><div className="house-roof" /><div className="house-body"><i /><i /><b /></div></div><div className="art-person person-one"><i /><b /></div><div className="art-person person-two"><i /><b /></div><span className="art-heart">♥</span><span className="art-spark">✳</span></div>
               </section>
 
               <section className="stats-row" aria-label="Community statistics">
                 <article className="stat-card"><span className="stat-icon icon-open">✳</span><div><span className="stat-label">OPEN REQUESTS</span><strong>{openCount}<small> requests</small></strong><span className="stat-foot"><i className="tiny-dot dot-orange" /> Ready for a helping hand</span></div></article>
                 <article className="stat-card"><span className="stat-icon icon-progress">↗</span><div><span className="stat-label">IN PROGRESS</span><strong>{activeCount}<small> requests</small></strong><span className="stat-foot"><i className="tiny-dot dot-blue" /> Neighbors on the way</span></div></article>
-                <article className="stat-card"><span className="stat-icon icon-resolved">✓</span><div><span className="stat-label">RESOLVED THIS WEEK</span><strong>{requests.filter((request) => request.status === 'RESOLVED').length}<small> requests</small></strong><span className="stat-foot"><i className="tiny-dot dot-green" /> Good things happen here</span></div></article>
+                <article className="stat-card"><span className="stat-icon icon-resolved">✓</span><div><span className="stat-label">RESOLVED THIS WEEK</span><strong>{resolvedCount}<small> requests</small></strong><span className="stat-foot"><i className="tiny-dot dot-green" /> Good things happen here</span></div></article>
               </section>
 
               <section className="requests-section">
-                <div className="section-heading"><div><div className="eyebrow">THE NEIGHBORHOOD BOARD</div><h2>{activePage === 'Requests' ? 'All requests' : 'Requests near you'} <span className="request-total">{requests.length}</span></h2></div><div className="section-tools"><label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search requests..." aria-label="Search requests" /></label><button className="filter-button" type="button" onClick={() => { setActiveFilter(activeFilter === 'All requests' ? 'Open' : 'All requests') }}>☷ <span>Filter</span></button></div></div>
+                <div className="section-heading"><div><div className="eyebrow">THE NEIGHBORHOOD BOARD</div><h2>{activePage === 'Requests' ? 'All requests' : 'Requests near you'} <span className="request-total">{communityRequests.length}</span></h2></div><div className="section-tools"><label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search requests..." aria-label="Search requests" /></label><button className="filter-button" type="button" onClick={() => { setActiveFilter(activeFilter === 'All requests' ? 'Open' : 'All requests') }}>☷ <span>Filter</span></button></div></div>
                 <div className="filter-tabs" role="tablist" aria-label="Filter requests">{filters.map((filter) => <button type="button" role="tab" aria-selected={activeFilter === filter} className={activeFilter === filter ? 'active' : ''} onClick={() => setActiveFilter(filter)} key={filter}>{filter}{filter === 'Open' && <span>{openCount}</span>}</button>)}</div>
                 <div className="request-list">
                   {visibleRequests.length ? visibleRequests.map((request) => <RequestCard key={request.id} request={request} onOpen={() => setSelected(request)} />) : <div className="empty-state"><span>⌕</span><h3>No requests found</h3><p>Try a different search or filter, or post a new request for your community.</p><button className="text-button" type="button" onClick={() => { setQuery(''); setActiveFilter('All requests') }}>Clear filters</button></div>}
@@ -252,6 +282,39 @@ function App() {
 
       {showChat && selected && <div className="modal-backdrop chat-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowChat(false) }}>      <section className="dialog chat-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-title"><div className="dialog-header"><div><div className="eyebrow">REQUEST {selected.id}</div><h2 id="chat-title">Neighbor chat</h2></div><button className="close-button" type="button" onClick={() => setShowChat(false)} aria-label="Close">×</button></div><Suspense fallback={<p className="dialog-intro">Loading the official CometChat UI Kit…</p>}><IncidentChat request={selected} /></Suspense></section></div>}
     </div>
+  )
+}
+
+function CommunityMenu({ communities, activeCommunity, onSelect, className = '' }) {
+  return (
+    <details className={`community-menu ${className}`}>
+      <summary className="community-select" aria-label={`Selected community: ${activeCommunity.name}`}>
+        <span className="community-dot" />
+        <span className="community-select-copy">
+          <strong>{activeCommunity.name}</strong>
+          <small>{activeCommunity.subtitle}</small>
+        </span>
+        <span className="chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div className="community-options" aria-label="Choose a community">
+        {communities.map((community) => (
+          <button
+            key={community.name}
+            type="button"
+            className={`community-option ${community.name === activeCommunity.name ? 'selected' : ''}`}
+            aria-current={community.name === activeCommunity.name ? 'true' : undefined}
+            onClick={(event) => {
+              onSelect(community.name)
+              event.currentTarget.closest('details')?.removeAttribute('open')
+            }}
+          >
+            <span className="community-option-icon">⌖</span>
+            <span><strong>{community.name}</strong><small>{community.subtitle}</small></span>
+            {community.name === activeCommunity.name && <span className="community-check">✓</span>}
+          </button>
+        ))}
+      </div>
+    </details>
   )
 }
 

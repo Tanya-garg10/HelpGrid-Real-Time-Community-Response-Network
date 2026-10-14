@@ -255,3 +255,57 @@
   .page-content { padding-left: 12px; padding-right: 12px; }.welcome-banner { padding: 18px; }.welcome-banner h1 { font-size: 20px; max-width: 210px; }.welcome-banner p { max-width: 200px; font-size: 10px; }.welcome-art { opacity: .42; width: 60%; }.art-house { right: 19px; }.person-two { right: 91px; }
   .form-row { grid-template-columns: 1fr; }.checkbox-grid { grid-template-columns: repeat(3,1fr); }.dialog { padding: 19px; }.status-controls button { font-size: 7px; }.status-controls button span { width: 15px; height: 15px; }
 }
+
+.sidebar { background: linear-gradient(180deg, #fff 0%, #fcfdfb 100%); }
+.brand-mark { box-shadow: inset 0 -3px 0 #176b60, 0 5px 12px #176b6020; }
+.community-menu { position: relative; z-index: 5; }
+.community-select { list-style: none; min-height: 48px; border-color: #e8ede8; box-shadow: 0 3px 10px #21352b08; transition: border-color .18s, box-shadow .18s; }
+.community-select::-webkit-details-marker { display: none; }
+.community-select::marker { content: ''; }
+.community-select:hover,.community-menu[open] > .community-select { border-color: #b7d8cd; box-shadow: 0 4px 14px #28776a12; }
+.community-select-copy { min-width: 0; display: grid; gap: 3px; }
+.community-select-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.community-select-copy small { color: #8b9891; font-size: 9px; font-weight: 500; }
+.community-menu[open] .chevron { transform: rotate(180deg); }
+.community-menu .chevron { transition: transform .18s; }
+.community-options { position: absolute; top: calc(100% + 7px); left: 0; width: max(100%, 236px); padding: 6px; border: 1px solid #e8ede8; border-radius: 12px; background: #fff; box-shadow: 0 16px 38px #1c34201c; }
+.community-option { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; transition: background .16s, color .16s; }
+.community-option:hover,.community-option.selected { background: #eff7f2; }
+.community-option-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 8px; background: #e5f1ec; color: #298173; font-size: 15px; }
+.community-option > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.community-option strong { color: #344940; font-size: 10px; }
+.community-option small { color: #8a9890; font-size: 9px; }
+.community-check { margin-left: auto; color: #278a7d; font-size: 13px; font-weight: 700; }
+.welcome-banner { min-height: 220px; border: 1px solid #e4eee6; background: linear-gradient(118deg, #f0f7f1 0%, #edf5ef 56%, #e5f1e9 100%); box-shadow: 0 12px 32px #284c3510; }
+.welcome-copy { max-width: 58%; }
+.welcome-banner h1 { max-width: 480px; line-height: 1.18; }
+.welcome-banner .eyebrow { color: #6f8980; }
+.stats-row { gap: 15px; }
+.stat-card,.volunteer-card { border-color: #e9ece6; box-shadow: 0 5px 16px #21352b08; transition: transform .18s, box-shadow .18s, border-color .18s; }
+.stat-card:hover,.volunteer-card:hover { transform: translateY(-2px); border-color: #dce9df; box-shadow: 0 10px 24px #21352b10; }
+.request-card { transition: background .18s, box-shadow .18s, transform .18s; }
+.request-card:hover { background: #fff; box-shadow: 0 8px 20px #21352b0b; transform: translateY(-1px); }
+.request-total { border-radius: 8px; background: #edf4ef; }
+.primary-button { border-radius: 8px; box-shadow: 0 4px 10px #1f82771c; }
+.primary-button:focus-visible,.community-option:focus-visible,.community-select:focus-visible { outline: 3px solid #8ccbc2; outline-offset: 2px; }
+.mobile-community-menu { display: none; }
+
+@media (max-width: 760px) {
+  .sidebar .community-menu { display: none; }
+  .mobile-community-menu { display: block; min-width: 0; }
+  .mobile-community-menu .community-select { display: flex; width: 38px; min-height: 36px; padding: 0; justify-content: center; border-radius: 10px; }
+  .mobile-community-menu .community-select-copy,.mobile-community-menu .chevron { display: none; }
+  .mobile-community-menu .community-dot { flex: 0 0 8px; }
+  .mobile-community-menu .community-options { left: auto; right: 0; width: 240px; }
+  .topbar { gap: 10px; }
+  .top-actions { gap: 12px; }
+  .welcome-copy { max-width: 72%; }
+  .welcome-banner { min-height: 216px; }
+  .welcome-banner h1 { max-width: 250px; font-size: 22px; }
+  .stats-row { gap: 8px; }
+}
+@media (max-width: 430px) {
+  .welcome-copy { max-width: 80%; }
+  .welcome-banner { min-height: 226px; }
+  .welcome-banner h1 { max-width: 215px; font-size: 20px; }
+}

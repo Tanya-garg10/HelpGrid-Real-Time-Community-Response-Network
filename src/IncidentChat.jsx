@@ -75,7 +75,7 @@ async function authenticate(uid, password) {
   })
   if (!tokenResponse.ok) {
     if (tokenResponse.status === 401) {
-      throw new Error('These development credentials were not accepted by the local token API.')
+      throw new Error('This UID/password pair is not configured in the local development API. Check the configured development users in .env, then restart npm run server:dev.')
     }
     throw new Error('The local token API could not authenticate with CometChat.')
   }
@@ -94,30 +94,85 @@ async function authenticate(uid, password) {
   }
 }
 
-async function getOrCreateIncidentGroup(request) {
-  const guid = incidentGroupGuid(request.id)
+async function getCometChatUser(peerUid, currentUid) {
+  if (!peerUid || !/^[A-Za-z0-9._-]{1,100}$/.test(peerUid)) {
+    throw new Error('Enter a valid CometChat UID for the neighbor you want to message.')
+  }
+  if (peerUid === currentUid) {
+    throw new Error('Choose a different CometChat UID; you cannot start a chat with yourself.')
+  }
+
+  try {
+    return await CometChat.getUser(peerUid)
+  } catch {
+    throw new Error('That CometChat user could not be found. Confirm the UID belongs to an existing user in this app.')
+  }
+}
+
+async function getIncidentGroup(requestId, peerUid) {
+  const guid = incidentGroupGuid(requestId)
   let group
+
   try {
     group = await CometChat.getGroup(guid)
   } catch {
+    const incidentGroup = new CometChat.Group(
+      guid,
+      `HelpGrid ${requestId}`,
+      CometChat.GROUP_TYPE.PRIVATE,
+    )
+    const peerMember = new CometChat.GroupMember(
+      peerUid,
+      CometChat.GROUP_MEMBER_SCOPE.PARTICIPANT,
+    )
     try {
-      group = await CometChat.createGroup(new CometChat.Group(
-        guid,
-        request.title.slice(0, 100),
-        CometChat.GROUP_TYPE.PRIVATE,
-      ))
+      await CometChat.createGroupWithMembers(incidentGroup, [peerMember], [])
     } catch {
       try {
-        group = await CometChat.getGroup(guid)
+        await CometChat.getGroup(guid)
       } catch {
-        throw new Error('Could not open this private incident room. Check your CometChat user and group settings.')
+        throw new Error(`Could not create or access the private chat for request ${requestId}. If it already exists, ask a member to add your CometChat user.`)
       }
+    }
+    try {
+      group = await CometChat.getGroup(guid)
+    } catch {
+      throw new Error('The private chat was created but could not be loaded. Reopen this request and try again.')
     }
   }
 
-  if (!group.getHasJoined()) {
-    throw new Error('You are not a member of this private incident room. Ask a CometChat group administrator to add your user.')
+  if (group.getType() !== CometChat.GROUP_TYPE.PRIVATE) {
+    throw new Error('This request’s CometChat room is not private, so HelpGrid will not open it.')
   }
+  if (!group.getHasJoined()) {
+    throw new Error('Your CometChat account is not a member of this request’s private chat.')
+  }
+
+  const membersRequest = new CometChat.GroupMembersRequestBuilder(guid)
+    .setLimit(100)
+    .build()
+  const members = await membersRequest.fetchNext()
+  if (!members.some((member) => member.getUid() === peerUid)) {
+    const scope = group.getScope()
+    if (
+      scope !== CometChat.GROUP_MEMBER_SCOPE.ADMIN
+      && scope !== CometChat.GROUP_MEMBER_SCOPE.MODERATOR
+    ) {
+      throw new Error('The selected neighbor is not a member of this private chat. Ask a group admin to add them.')
+    }
+
+    await CometChat.addMembersToGroup(guid, [
+      new CometChat.GroupMember(peerUid, CometChat.GROUP_MEMBER_SCOPE.PARTICIPANT),
+    ], [])
+    const updatedMembers = await new CometChat.GroupMembersRequestBuilder(guid)
+      .setLimit(100)
+      .build()
+      .fetchNext()
+    if (!updatedMembers.some((member) => member.getUid() === peerUid)) {
+      throw new Error('CometChat did not confirm the neighbor’s membership in this request chat.')
+    }
+  }
+
   return group
 }
 
@@ -129,6 +184,8 @@ function describeError(error) {
 export default function IncidentChat({ request }) {
   const [uid, setUid] = useState('')
   const [password, setPassword] = useState('')
+  const [peerUid, setPeerUid] = useState('')
+  const [roomRequestId, setRoomRequestId] = useState(request.id)
   const [group, setGroup] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -140,12 +197,17 @@ export default function IncidentChat({ request }) {
       setError('Enter your CometChat UID and the local development password.')
       return
     }
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(roomRequestId.trim())) {
+      setError('Enter a request ID containing only letters, numbers, hyphens, or underscores.')
+      return
+    }
 
     setLoading(true)
     try {
       const userUid = uid.trim()
       await authenticate(userUid, password)
-      const incidentGroup = await getOrCreateIncidentGroup(request)
+      const peerUser = await getCometChatUser(peerUid.trim(), userUid)
+      const incidentGroup = await getIncidentGroup(roomRequestId.trim(), peerUser.getUid())
       setGroup(incidentGroup)
       setUid(userUid)
       setPassword('')
@@ -168,13 +230,14 @@ export default function IncidentChat({ request }) {
   }
 
   if (group) {
+    const peerDisplayName = peerUid || 'request participant'
     return (
       <div className="incident-chat">
         <div className="incident-chat-account">
-          <span>Connected as {uid}</span>
+          <span>{uid} · private room member</span>
           <button type="button" className="text-button" onClick={disconnect}>Sign out</button>
         </div>
-        <p className="incident-chat-note">Private CometChat room for this request. Only current group members can read or send messages.</p>
+        <p className="incident-chat-note">Private CometChat group for request {roomRequestId}. Access is limited by CometChat group membership. Neighbor: {peerDisplayName}.</p>
         {error && <div className="form-error" role="alert">{error}</div>}
         <CometChatProvider>
           <div className="incident-chat-view">
@@ -197,7 +260,7 @@ export default function IncidentChat({ request }) {
     <div className="chat-setup">
       <span className="chat-setup-icon">▤</span>
       <h3>Connect to this incident’s chat</h3>
-      <p>Uses the official CometChat UI Kit and a server-issued auth token. Your password is sent only to the local development API and is not saved by HelpGrid.</p>
+      <p>Uses the official CometChat UI Kit and a server-issued auth token. Each request gets a private CometChat group, and the selected existing neighbor is added as a member. Your password is sent only to the local development API and is not saved by HelpGrid.</p>
       {error && <div className="form-error" role="alert">{error}</div>}
       <form className="chat-auth-form" onSubmit={connect}>
         <label>
@@ -220,11 +283,30 @@ export default function IncidentChat({ request }) {
             placeholder="Password configured in the backend .env"
           />
         </label>
+        <label>
+          Request ID
+          <input
+            autoComplete="off"
+            maxLength="100"
+            value={roomRequestId}
+            onChange={(event) => setRoomRequestId(event.target.value)}
+          />
+        </label>
+        <label>
+          Neighbor’s CometChat UID
+          <input
+            autoComplete="off"
+            maxLength="100"
+            value={peerUid}
+            onChange={(event) => setPeerUid(event.target.value)}
+            placeholder="UID of an existing CometChat user"
+          />
+        </label>
         <button className="primary-button" type="submit" disabled={loading}>
-          {loading ? 'Connecting…' : 'Connect to chat'}
+          {loading ? 'Connecting…' : 'Connect to request chat'}
         </button>
       </form>
-      <p className="chat-safety">This local backend admits only its configured development UID. Private room members must already exist in CometChat and be added by a room administrator. Do not deploy this development login flow.</p>
+      <p className="chat-safety">Both CometChat accounts must already exist in this app. The local backend can authenticate only the one or two development identities configured on the server. Do not deploy this development login flow.</p>
     </div>
   )
 }

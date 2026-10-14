@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { incidentGroupGuid, loadRequests, matchVolunteers, persistRequests } from './requests.js'
+import {
+  createRequestRecord,
+  incidentGroupGuid,
+  loadRequests,
+  matchVolunteers,
+  persistRequests,
+  updateRequestStatus,
+} from './requests.js'
 
 const sampleRequests = [
   {
@@ -54,6 +61,30 @@ test('persists the full board and reports storage failures', () => {
   assert.equal(persistRequests({ setItem: () => { throw new Error('quota') } }, sampleRequests), false)
 })
 
+test('creates a request, advances its status, and restores both after reload', () => {
+  const created = createRequestRecord({
+    title: '  Grocery help ',
+    category: 'Errands',
+    description: ' Pick up groceries ',
+    area: ' North Park ',
+    urgency: 'Today',
+    skills: ['Driving', 'Shopping'],
+  }, 'HG-12345')
+  assert.equal(created.status, 'OPEN')
+  assert.equal(created.title, 'Grocery help')
+  assert.equal(created.description, 'Pick up groceries')
+  assert.equal(created.area, 'North Park')
+
+  const changed = updateRequestStatus([created], created.id, 'RESPONDING')
+  assert.equal(changed[0].status, 'RESPONDING')
+  assert.throws(() => updateRequestStatus(changed, created.id, 'UNKNOWN'), /Unsupported request status/)
+
+  let savedValue
+  assert.equal(persistRequests({ setItem: (_key, value) => { savedValue = value } }, changed), true)
+  const restored = loadRequests({ getItem: () => savedValue }, sampleRequests)
+  assert.equal(restored.requests.find((request) => request.id === created.id).status, 'RESPONDING')
+})
+
 test('RelayMatch ranks declared skills, category, area, and availability with reasons', () => {
   const matches = matchVolunteers(sampleRequests[0], volunteers)
   assert.deepEqual(matches.map((volunteer) => volunteer.name), ['Nearby match', 'Category match'])
@@ -64,8 +95,8 @@ test('RelayMatch ranks declared skills, category, area, and availability with re
   assert.equal(matches.some((volunteer) => volunteer.name === 'No match'), false)
 })
 
-test('creates a stable CometChat-safe group ID for each incident', () => {
-  assert.equal(incidentGroupGuid('HG-20 48'), 'helpgrid_hg-20_48')
-  assert.equal(incidentGroupGuid('HG-2048'), incidentGroupGuid('HG-2048'))
+test('maps each request to a stable private-group-safe CometChat GUID', () => {
+  assert.equal(incidentGroupGuid('HG-AF174A52'), 'helpgrid_hg-af174a52')
+  assert.equal(incidentGroupGuid('HG-AF174A52'), incidentGroupGuid('HG-AF174A52'))
   assert.ok(incidentGroupGuid('x'.repeat(150)).length <= 100)
 })

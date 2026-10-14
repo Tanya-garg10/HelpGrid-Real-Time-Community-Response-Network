@@ -9,7 +9,7 @@ function constantTimeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
 }
 
-function authenticatedUid(authorization, devUid, devPassword) {
+function authenticatedUid(authorization, devUsers) {
   if (typeof authorization !== 'string') return null
   const match = /^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(authorization)
   if (!match) return null
@@ -23,19 +23,38 @@ function authenticatedUid(authorization, devUid, devPassword) {
 
   const uid = decodedCredentials.slice(0, separator)
   const password = decodedCredentials.slice(separator + 1)
-  if (!constantTimeEqual(uid, devUid) || !constantTimeEqual(password, devPassword)) return null
-  return uid
+  const identity = devUsers.find((candidate) => constantTimeEqual(uid, candidate.uid))
+  if (!identity || !constantTimeEqual(password, identity.password)) return null
+  return identity.uid
 }
 
-export function createApp({ appId, region, restApiKey, devUid, devPassword, fetchImpl = globalThis.fetch }) {
-  if (!appId || !restApiKey || !devUid || !devPassword || typeof fetchImpl !== 'function') {
+export function createApp({
+  appId,
+  region,
+  restApiKey,
+  devUid,
+  devPassword,
+  devUsers = [{ uid: devUid, password: devPassword }],
+  fetchImpl = globalThis.fetch,
+}) {
+  if (!appId || !restApiKey || !Array.isArray(devUsers) || !devUsers.length || typeof fetchImpl !== 'function') {
     throw new Error('CometChat and development-auth configuration is incomplete.')
   }
   if (!['us', 'eu', 'in'].includes(region)) {
     throw new Error('COMETCHAT_REGION must be us, eu, or in.')
   }
-  if (!UID_PATTERN.test(devUid) || devPassword.length < 16) {
-    throw new Error('Development auth requires a valid UID and a password of at least 16 characters.')
+  if (
+    devUsers.length > 2
+    || devUsers.some((identity) => (
+      !identity
+      || typeof identity.uid !== 'string'
+      || !UID_PATTERN.test(identity.uid)
+      || typeof identity.password !== 'string'
+      || identity.password.length < 16
+    ))
+    || new Set(devUsers.map((identity) => identity.uid)).size !== devUsers.length
+  ) {
+    throw new Error('Development auth requires one or two distinct valid UIDs and passwords of at least 16 characters.')
   }
 
   const app = express()
@@ -48,7 +67,7 @@ export function createApp({ appId, region, restApiKey, devUid, devPassword, fetc
   })
 
   app.post('/api/cometchat/token', async (request, response) => {
-    const verifiedUid = authenticatedUid(request.get('authorization'), devUid, devPassword)
+    const verifiedUid = authenticatedUid(request.get('authorization'), devUsers)
     if (!verifiedUid) {
       return response.status(401).json({ error: 'Authentication required.' })
     }

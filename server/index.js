@@ -12,15 +12,28 @@ if (env.NODE_ENV === 'production' || env.HELPGRID_ENABLE_DEV_AUTH !== 'true') {
     process.exitCode = 1
   } else {
     try {
+      const devUsers = [{
+        uid: env.HELPGRID_DEV_UID,
+        password: env.HELPGRID_DEV_PASSWORD,
+      }]
+      if (env.HELPGRID_DEV_UID_2 || env.HELPGRID_DEV_PASSWORD_2) {
+        if (!env.HELPGRID_DEV_UID_2 || !env.HELPGRID_DEV_PASSWORD_2) {
+          throw new Error('Configure both HELPGRID_DEV_UID_2 and HELPGRID_DEV_PASSWORD_2 for the second test user.')
+        }
+        devUsers.push({
+          uid: env.HELPGRID_DEV_UID_2,
+          password: env.HELPGRID_DEV_PASSWORD_2,
+        })
+      }
+
       const app = createApp({
         appId: env.COMETCHAT_APP_ID,
         region: env.COMETCHAT_REGION,
         restApiKey: env.COMETCHAT_REST_API_KEY,
-        devUid: env.HELPGRID_DEV_UID,
-        devPassword: env.HELPGRID_DEV_PASSWORD,
+        devUsers,
       })
       app.listen(port, '127.0.0.1', () => {
-        console.log(`HelpGrid development API listening at http://127.0.0.1:${port}`)
+        console.log(`HelpGrid development API listening at http://127.0.0.1:${port} (${devUsers.length} development user${devUsers.length === 1 ? '' : 's'} configured)`)
       })
     } catch (error) {
       console.error(error.message)

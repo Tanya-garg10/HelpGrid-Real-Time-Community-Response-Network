@@ -7,6 +7,8 @@ const categorySkillGroups = {
   'Translation': ['spanish', 'translation'],
 }
 
+const requestStatuses = ['OPEN', 'CLAIMED', 'RESPONDING', 'RESOLVED']
+
 function isRequest(value) {
   return value
     && typeof value === 'object'
@@ -69,6 +71,32 @@ export function persistRequests(storage, requests) {
   }
 }
 
+export function createRequestRecord(form, id) {
+  return {
+    ...form,
+    id,
+    title: form.title.trim(),
+    description: form.description.trim(),
+    area: form.area.trim(),
+    status: 'OPEN',
+    createdAt: 'Just now',
+    initials: 'You',
+    color: 'teal',
+  }
+}
+
+export function updateRequestStatus(requests, id, status) {
+  if (!requestStatuses.includes(status)) {
+    throw new Error('Unsupported request status.')
+  }
+  return requests.map((request) => request.id === id ? { ...request, status } : request)
+}
+
+export function incidentGroupGuid(requestId) {
+  const normalizedId = requestId.toLowerCase().replace(/[^a-z0-9_-]/g, '_')
+  return `helpgrid_${normalizedId}`.slice(0, 100)
+}
+
 export function matchVolunteers(request, volunteers) {
   return volunteers
     .map((volunteer) => {
@@ -93,9 +121,4 @@ export function matchVolunteers(request, volunteers) {
     .filter((volunteer) => volunteer.sharedSkills.length || volunteer.categoryFit)
     .sort((left, right) => right.score - left.score)
     .slice(0, 3)
-}
-
-export function incidentGroupGuid(requestId) {
-  const normalizedId = requestId.toLowerCase().replace(/[^a-z0-9_-]/g, '_')
-  return `helpgrid_${normalizedId}`.slice(0, 100)
 }

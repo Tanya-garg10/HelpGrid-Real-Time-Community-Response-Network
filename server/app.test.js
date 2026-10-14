@@ -13,13 +13,14 @@ function authorizationHeader(userUid = uid, userPassword = password) {
   return `Basic ${credentials}`
 }
 
-async function startTestServer(fetchImpl) {
+async function startTestServer(fetchImpl, devUsers) {
   const server = createApp({
     appId: 'test-app-id',
     region: 'eu',
     restApiKey,
     devUid: uid,
     devPassword: password,
+    ...(devUsers ? { devUsers } : {}),
     fetchImpl,
   }).listen(0, '127.0.0.1')
   servers.push(server)
@@ -34,6 +35,14 @@ function successfulCometChatFetch(url, options) {
   upstreamCalls.push({ url, options })
   return Promise.resolve(new Response(JSON.stringify({
     data: { uid, authToken: 'generated-test-token' },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+}
+
+function userSpecificCometChatFetch(url, options) {
+  upstreamCalls.push({ url, options })
+  const matchedUid = /\/users\/([^/]+)\/auth_tokens$/.exec(url)?.[1]
+  return Promise.resolve(new Response(JSON.stringify({
+    data: { uid: matchedUid, authToken: `generated-${matchedUid}-token` },
   }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
 }
 
@@ -111,6 +120,48 @@ test('creates a server-side CometChat token using the configured region and API 
   assert.equal(upstreamCalls[0].options.headers.apiKey, restApiKey)
   assert.equal(upstreamCalls[0].options.headers.appId, 'test-app-id')
   assert.equal(upstreamCalls[0].options.method, 'POST')
+})
+
+test('authenticates only the explicitly configured second development identity', async () => {
+  const secondUid = 'helpgrid-second-user'
+  const secondPassword = 'another-local-password-123456'
+  const endpoint = await startTestServer(userSpecificCometChatFetch, [
+    { uid, password },
+    { uid: secondUid, password: secondPassword },
+  ])
+  const secondAuth = authorizationHeader(secondUid, secondPassword)
+
+  const secondToken = await fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: secondAuth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: secondUid }),
+  })
+  assert.equal(secondToken.status, 200)
+  assert.deepEqual(await secondToken.json(), {
+    uid: secondUid,
+    authToken: `generated-${secondUid}-token`,
+  })
+  assert.ok(upstreamCalls.at(-1).url.endsWith(`/users/${secondUid}/auth_tokens`))
+
+  const uidSubstitution = await fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: secondAuth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid }),
+  })
+  assert.equal(uidSubstitution.status, 401)
+})
+
+test('rejects invalid multi-user development configuration', () => {
+  assert.throws(() => createApp({
+    appId: 'test-app-id',
+    region: 'eu',
+    restApiKey,
+    devUsers: [
+      { uid, password },
+      { uid, password: 'another-local-password-123456' },
+    ],
+    fetchImpl: successfulCometChatFetch,
+  }), /distinct valid UIDs/)
 })
 
 test('returns a sanitized 500 if the CometChat API rejects the request', async () => {
